@@ -19,7 +19,7 @@ const CheckoutForm = ({ eventData, onSuccess }) => {
 
   const calculateTotal = () => {
     const subtotal = eventData.ticket_price * formData.quantity;
-    const fee = subtotal * 0.10; // 10% platform fee
+    const fee = subtotal * 0.10;
     return {
       subtotal: subtotal.toFixed(2),
       fee: fee.toFixed(2),
@@ -85,7 +85,7 @@ const CheckoutForm = ({ eventData, onSuccess }) => {
         // Generate ticket code
         const ticketCode = 'TIX-' + Math.random().toString(36).substr(2, 9).toUpperCase();
 
-        // Create ticket in database
+        // Create ticket in database - REMOVED event_name
         const { data: ticketData, error: ticketError } = await supabase
           .from('tickets')
           .insert([
@@ -99,7 +99,10 @@ const CheckoutForm = ({ eventData, onSuccess }) => {
               total_paid: parseFloat(totals.total),
               payment_method: 'stripe',
               payment_status: 'completed',
-              stripe_payment_id: paymentIntent.id
+              payment_id: paymentIntent.id,
+              stripe_payment_id: paymentIntent.id,
+              status: 'completed',
+              checked_in: false
             },
           ])
           .select()
@@ -107,7 +110,7 @@ const CheckoutForm = ({ eventData, onSuccess }) => {
 
         if (ticketError) {
           console.error('Error creating ticket:', ticketError);
-          setError('Payment succeeded but failed to create ticket. Please contact support.');
+          setError('Payment succeeded but failed to create ticket. Please contact support with payment ID: ' + paymentIntent.id);
           setProcessing(false);
           return;
         }
@@ -339,6 +342,7 @@ const PaymentPage = () => {
 
   useEffect(() => {
     loadEvent();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventId]);
 
   const loadEvent = async () => {
