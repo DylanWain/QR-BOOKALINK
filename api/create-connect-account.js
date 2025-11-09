@@ -1,33 +1,49 @@
-const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+import Stripe from 'stripe';
 
-module.exports = async (req, res) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-  if (req.method === "OPTIONS") {
+export default async function handler(req, res) {
+  // CORS headers
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  // Handle preflight
+  if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
-    const { email } = req.body;
+    const { accountId } = req.body;
 
-    const account = await stripe.accounts.create({
-      type: "express",
-      email: email,
-      capabilities: {
-        card_payments: { requested: true },
-        transfers: { requested: true },
-      },
+    console.log('Creating account link for:', accountId);
+
+    if (!accountId) {
+      return res.status(400).json({ error: 'Account ID required' });
+    }
+
+    // Create account link for onboarding
+    const accountLink = await stripe.accountLinks.create({
+      account: accountId,
+      refresh_url: 'https://qr-bookalink.vercel.app/create-event',
+      return_url: 'https://qr-bookalink.vercel.app/create-event',
+      type: 'account_onboarding',
     });
 
-    res.status(200).json({ account });
+    console.log('✅ Account link created:', accountLink.url);
+
+    res.status(200).json({
+      url: accountLink.url
+    });
+
   } catch (error) {
-    console.error("Stripe error:", error);
-    res.status(500).json({ error: error.message });
+    console.error('❌ Account link error:', error);
+    res.status(500).json({
+      error: error.message || 'Failed to create account link'
+    });
   }
-};
+}
