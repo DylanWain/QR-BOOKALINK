@@ -40,7 +40,7 @@ export default async function handler(req, res) {
 
     // Send email with embedded QR code
     const { data, error } = await resend.emails.send({
-      from: 'BookaLink Events <onboarding@resend.dev>', // Change this to your domain after verification
+     from: 'BookaLink Events <tickets@bookalink.com>',
       to: [buyerEmail],
       subject: `🎉 Your Ticket for ${eventName}`,
       html: `
