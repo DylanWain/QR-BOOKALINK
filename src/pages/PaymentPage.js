@@ -1,406 +1,488 @@
-import React, { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import { PayPalButtons, PayPalScriptProvider } from "@paypal/react-paypal-js";
-import { getEvent } from "../services/eventService";
-import { handlePaymentSuccess } from "../services/paymentService";
-import { calculateFees } from "../utils/feeCalculator";
+import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { supabase } from '../config/supabase';
+import { loadStripe } from '@stripe/stripe-js';
+import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
+
+const stripePromise = loadStripe(process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY);
+
+const CheckoutForm = ({ eventData, onSuccess }) => {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [processing, setProcessing] = useState(false);
+  const [error, setError] = useState(null);
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    quantity: 1
+  });
+
+  const calculateTotal = () => {
+    const subtotal = eventData.ticket_price * formData.quantity;
+    const fee = subtotal * 0.10; // 10% platform fee
+    return {
+      subtotal: subtotal.toFixed(2),
+      fee: fee.toFixed(2),
+      total: (subtotal + fee).toFixed(2)
+    };
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    if (!stripe || !elements) {
+      return;
+    }
+
+    if (!formData.name || !formData.email) {
+      setError('Please fill in all fields');
+      return;
+    }
+
+    setProcessing(true);
+    setError(null);
+
+    try {
+      const totals = calculateTotal();
+
+      // Create payment intent
+      const response = await fetch('/api/create-payment-intent', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          amount: Math.round(parseFloat(totals.total) * 100),
+          eventId: eventData.id,
+          quantity: formData.quantity
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to create payment intent');
+      }
+
+      const { clientSecret } = await response.json();
+
+      // Confirm payment
+      const { error: stripeError, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
+        payment_method: {
+          card: elements.getElement(CardElement),
+          billing_details: {
+            name: formData.name,
+            email: formData.email,
+          },
+        },
+      });
+
+      if (stripeError) {
+        setError(stripeError.message);
+        setProcessing(false);
+        return;
+      }
+
+      if (paymentIntent.status === 'succeeded') {
+        // Generate ticket code
+        const ticketCode = 'TIX-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+
+        // Create ticket in database
+        const { data: ticketData, error: ticketError } = await supabase
+          .from('tickets')
+          .insert([
+            {
+              event_id: eventData.id,
+              ticket_code: ticketCode,
+              buyer_name: formData.name,
+              buyer_email: formData.email,
+              quantity: formData.quantity,
+              ticket_price: parseFloat(eventData.ticket_price),
+              total_paid: parseFloat(totals.total),
+              payment_method: 'stripe',
+              payment_status: 'completed',
+              stripe_payment_id: paymentIntent.id
+            },
+          ])
+          .select()
+          .single();
+
+        if (ticketError) {
+          console.error('Error creating ticket:', ticketError);
+          setError('Payment succeeded but failed to create ticket. Please contact support.');
+          setProcessing(false);
+          return;
+        }
+
+        // Success!
+        onSuccess(ticketCode);
+      }
+    } catch (err) {
+      console.error('Payment error:', err);
+      setError(err.message || 'Payment failed. Please try again.');
+      setProcessing(false);
+    }
+  };
+
+  const totals = calculateTotal();
+
+  return (
+    <form onSubmit={handleSubmit} style={{ width: '100%' }}>
+      {/* Name Input */}
+      <div style={{ marginBottom: '20px' }}>
+        <label style={{
+          display: 'block',
+          fontSize: '14px',
+          fontWeight: 700,
+          marginBottom: '8px'
+        }}>
+          Full Name
+        </label>
+        <input
+          type="text"
+          value={formData.name}
+          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+          placeholder="John Doe"
+          required
+          style={{
+            width: '100%',
+            padding: '12px',
+            border: '3px solid #000000',
+            borderRadius: '8px',
+            fontSize: '16px',
+            fontWeight: 600
+          }}
+        />
+      </div>
+
+      {/* Email Input */}
+      <div style={{ marginBottom: '20px' }}>
+        <label style={{
+          display: 'block',
+          fontSize: '14px',
+          fontWeight: 700,
+          marginBottom: '8px'
+        }}>
+          Email Address
+        </label>
+        <input
+          type="email"
+          value={formData.email}
+          onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+          placeholder="john@example.com"
+          required
+          style={{
+            width: '100%',
+            padding: '12px',
+            border: '3px solid #000000',
+            borderRadius: '8px',
+            fontSize: '16px',
+            fontWeight: 600
+          }}
+        />
+      </div>
+
+      {/* Quantity Selector */}
+      <div style={{ marginBottom: '20px' }}>
+        <label style={{
+          display: 'block',
+          fontSize: '14px',
+          fontWeight: 700,
+          marginBottom: '8px'
+        }}>
+          Number of Tickets
+        </label>
+        <select
+          value={formData.quantity}
+          onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) })}
+          style={{
+            width: '100%',
+            padding: '12px',
+            border: '3px solid #000000',
+            borderRadius: '8px',
+            fontSize: '16px',
+            fontWeight: 600,
+            cursor: 'pointer'
+          }}
+        >
+          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(num => (
+            <option key={num} value={num}>{num}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Card Element */}
+      <div style={{ marginBottom: '24px' }}>
+        <label style={{
+          display: 'block',
+          fontSize: '14px',
+          fontWeight: 700,
+          marginBottom: '8px'
+        }}>
+          Card Information
+        </label>
+        <div style={{
+          padding: '14px',
+          border: '3px solid #000000',
+          borderRadius: '8px',
+          backgroundColor: '#FFFFFF'
+        }}>
+          <CardElement
+            options={{
+              style: {
+                base: {
+                  fontSize: '16px',
+                  fontWeight: '600',
+                  color: '#000000',
+                  '::placeholder': {
+                    color: '#999999',
+                  },
+                },
+              },
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Price Breakdown */}
+      <div style={{
+        background: '#F9FAFB',
+        border: '2px solid #E5E7EB',
+        borderRadius: '12px',
+        padding: '16px',
+        marginBottom: '24px'
+      }}>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          marginBottom: '8px',
+          fontSize: '14px'
+        }}>
+          <span>Tickets ({formData.quantity} × ${eventData.ticket_price})</span>
+          <span style={{ fontWeight: 700 }}>${totals.subtotal}</span>
+        </div>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          marginBottom: '12px',
+          paddingBottom: '12px',
+          borderBottom: '2px solid #E5E7EB',
+          fontSize: '14px',
+          color: '#666'
+        }}>
+          <span>Platform Fee (10%)</span>
+          <span style={{ fontWeight: 700 }}>${totals.fee}</span>
+        </div>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          fontSize: '18px',
+          fontWeight: 900
+        }}>
+          <span>Total</span>
+          <span style={{ color: '#10B981' }}>${totals.total}</span>
+        </div>
+      </div>
+
+      {/* Error Message */}
+      {error && (
+        <div style={{
+          background: '#FEE2E2',
+          border: '2px solid #EF4444',
+          borderRadius: '8px',
+          padding: '12px',
+          marginBottom: '16px',
+          color: '#DC2626',
+          fontSize: '14px',
+          fontWeight: 600
+        }}>
+          {error}
+        </div>
+      )}
+
+      {/* Submit Button */}
+      <button
+        type="submit"
+        disabled={!stripe || processing}
+        style={{
+          width: '100%',
+          background: processing ? '#9CA3AF' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          color: '#FFFFFF',
+          border: '3px solid #000000',
+          borderRadius: '12px',
+          padding: '16px',
+          fontSize: '18px',
+          fontWeight: 900,
+          cursor: processing ? 'not-allowed' : 'pointer',
+          boxShadow: processing ? 'none' : '6px 6px 0px #000000',
+          textTransform: 'uppercase'
+        }}
+      >
+        {processing ? '⏳ Processing...' : `💳 Pay $${totals.total}`}
+      </button>
+
+      <div style={{
+        textAlign: 'center',
+        marginTop: '16px',
+        fontSize: '12px',
+        color: '#666'
+      }}>
+        🔒 Secure payment powered by Stripe
+      </div>
+    </form>
+  );
+};
 
 const PaymentPage = () => {
   const { eventId } = useParams();
   const navigate = useNavigate();
   const [eventData, setEventData] = useState(null);
-  const [formData, setFormData] = useState({
-    buyerName: "",
-    buyerEmail: "",
-    quantity: 1,
-  });
-  const [error, setError] = useState("");
-  const [processing, setProcessing] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     loadEvent();
   }, [eventId]);
 
   const loadEvent = async () => {
-    const { data, error } = await getEvent(eventId);
-    if (error) {
-      setError("Event not found");
-    } else {
-      setEventData(data);
-    }
-  };
-
-  const handleChange = (field, value) => {
-    setFormData({ ...formData, [field]: value });
-    setError("");
-  };
-
-  const handlePayPalSuccess = async (orderData) => {
-    setProcessing(true);
     try {
-      const result = await handlePaymentSuccess(
-        orderData,
-        eventId,
-        {
-          name: formData.buyerName,
-          email: formData.buyerEmail,
-        },
-        formData.quantity
-      );
+      const { data, error } = await supabase
+        .from('events')
+        .select('*')
+        .eq('id', eventId)
+        .single();
 
-      if (result.success) {
-        navigate(`/ticket/${result.ticketCode}`, {
-          state: {
-            ticketCode: result.ticketCode,
-            qrCodeUrl: result.qrCodeUrl,
-            eventName: eventData.event_name,
-            buyerName: formData.buyerName,
-            quantity: formData.quantity,
-          },
-        });
+      if (error) {
+        console.error('Error loading event:', error);
+        alert('Event not found');
+        return;
       }
+
+      setEventData(data);
     } catch (error) {
-      setError(
-        "Payment processed but ticket creation failed. Please contact support."
-      );
-      setProcessing(false);
+      console.error('Error loading event:', error);
+      alert('Failed to load event');
+    } finally {
+      setLoading(false);
     }
   };
 
-  if (!eventData) {
+  const handleSuccess = (ticketCode) => {
+    navigate(`/ticket/${ticketCode}`);
+  };
+
+  if (loading) {
     return (
-      <div style={{ padding: "40px", textAlign: "center" }}>
-        <div style={{ fontSize: "48px", marginBottom: "16px" }}>⏳</div>
-        <div style={{ fontSize: "18px", fontWeight: 600 }}>
-          {error || "Loading event..."}
+      <div style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: '#F3F4F6'
+      }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: '48px', marginBottom: '16px' }}>⏳</div>
+          <div style={{ fontSize: '18px', fontWeight: 600 }}>Loading event...</div>
         </div>
       </div>
     );
   }
 
-  const fees = calculateFees(
-    parseFloat(eventData.ticket_price),
-    parseInt(formData.quantity)
-  );
-
-  const initialOptions = {
-    clientId: process.env.REACT_APP_PAYPAL_CLIENT_ID,
-    currency: "USD",
-    intent: "capture",
-  };
-
-  return (
-    <div style={{ minHeight: "100vh", background: "#F3F4F6" }}>
-      {/* Header */}
-      <div
-        style={{
-          background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-          padding: "20px",
-          borderBottom: "3px solid #000000",
-        }}
-      >
-        <div style={{ maxWidth: "800px", margin: "0 auto" }}>
-          <h1
-            style={{
-              fontSize: "clamp(20px, 5vw, 28px)",
-              fontWeight: 900,
-              color: "#FFFFFF",
-              textShadow: "2px 2px 0px rgba(0,0,0,0.3)",
-              margin: 0,
-            }}
-          >
-            🎫 Get Your Tickets
-          </h1>
+  if (!eventData) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: '#F3F4F6'
+      }}>
+        <div style={{
+          background: '#FFFFFF',
+          border: '4px solid #000000',
+          borderRadius: '20px',
+          padding: '40px',
+          boxShadow: '8px 8px 0px #000000',
+          textAlign: 'center',
+          maxWidth: '400px'
+        }}>
+          <div style={{ fontSize: '60px', marginBottom: '16px' }}>😕</div>
+          <h2 style={{ fontSize: '24px', fontWeight: 900, marginBottom: '12px' }}>
+            Event Not Found
+          </h2>
+          <p style={{ fontSize: '16px', color: '#666' }}>
+            This event doesn't exist or has been removed.
+          </p>
         </div>
       </div>
+    );
+  }
 
-      <div
-        style={{ maxWidth: "600px", margin: "0 auto", padding: "40px 20px" }}
-      >
-        {/* Event Info */}
-        <div
-          style={{
-            background: "#FFFFFF",
-            border: "3px solid #000000",
-            borderRadius: "16px",
-            padding: "24px",
-            boxShadow: "6px 6px 0px #000000",
-            marginBottom: "24px",
-            textAlign: "center",
-          }}
-        >
-          <h2
-            style={{ fontSize: "28px", fontWeight: 900, marginBottom: "8px" }}
-          >
-            {eventData.event_name}
-          </h2>
-          <div style={{ fontSize: "24px", fontWeight: 800, color: "#667eea" }}>
-            ${eventData.ticket_price} per ticket
+  return (
+    <div style={{ minHeight: '100vh', background: '#F3F4F6', padding: '20px' }}>
+      <div style={{
+        maxWidth: '600px',
+        margin: '0 auto',
+        paddingTop: 'clamp(20px, 5vw, 40px)'
+      }}>
+        {/* Event Info Card */}
+        <div style={{
+          background: '#FFFFFF',
+          border: '4px solid #000000',
+          borderRadius: '20px',
+          padding: 'clamp(24px, 6vw, 32px)',
+          boxShadow: '8px 8px 0px #000000',
+          marginBottom: '24px'
+        }}>
+          <h1 style={{
+            fontSize: 'clamp(24px, 6vw, 32px)',
+            fontWeight: 900,
+            marginBottom: '16px',
+            wordBreak: 'break-word'
+          }}>
+            🎉 {eventData.event_name}
+          </h1>
+
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            marginBottom: '12px',
+            fontSize: 'clamp(18px, 4.5vw, 20px)',
+            fontWeight: 800,
+            color: '#667eea'
+          }}>
+            <span>💰</span>
+            <span>${eventData.ticket_price} per ticket</span>
           </div>
+
+          {!eventData.unlimited && (
+            <div style={{
+              fontSize: '14px',
+              color: '#666',
+              fontWeight: 600
+            }}>
+              📊 Limited tickets available
+            </div>
+          )}
         </div>
 
-        {/* Purchase Form */}
-        <div
-          style={{
-            background: "#FFFFFF",
-            border: "4px solid #000000",
-            borderRadius: "20px",
-            padding: "32px",
-            boxShadow: "8px 8px 0px #000000",
-            marginBottom: "24px",
-          }}
-        >
-          <h3
-            style={{ fontSize: "20px", fontWeight: 800, marginBottom: "24px" }}
-          >
-            Your Information
-          </h3>
+        {/* Payment Form Card */}
+        <div style={{
+          background: '#FFFFFF',
+          border: '4px solid #000000',
+          borderRadius: '20px',
+          padding: 'clamp(24px, 6vw, 32px)',
+          boxShadow: '8px 8px 0px #000000'
+        }}>
+          <h2 style={{
+            fontSize: 'clamp(20px, 5vw, 24px)',
+            fontWeight: 900,
+            marginBottom: '24px'
+          }}>
+            💳 Purchase Tickets
+          </h2>
 
-          {/* Name */}
-          <div style={{ marginBottom: "20px" }}>
-            <label
-              style={{
-                display: "block",
-                marginBottom: "8px",
-                fontSize: "14px",
-                fontWeight: 700,
-              }}
-            >
-              Your Name
-            </label>
-            <input
-              type="text"
-              placeholder="John Smith"
-              value={formData.buyerName}
-              onChange={(e) => handleChange("buyerName", e.target.value)}
-              disabled={processing}
-              style={{
-                width: "100%",
-                padding: "14px",
-                border: "3px solid #000000",
-                borderRadius: "12px",
-                fontSize: "16px",
-                fontWeight: 600,
-                fontFamily: "inherit",
-              }}
-            />
-          </div>
-
-          {/* Email */}
-          <div style={{ marginBottom: "20px" }}>
-            <label
-              style={{
-                display: "block",
-                marginBottom: "8px",
-                fontSize: "14px",
-                fontWeight: 700,
-              }}
-            >
-              Your Email
-            </label>
-            <input
-              type="email"
-              placeholder="john@email.com"
-              value={formData.buyerEmail}
-              onChange={(e) => handleChange("buyerEmail", e.target.value)}
-              disabled={processing}
-              style={{
-                width: "100%",
-                padding: "14px",
-                border: "3px solid #000000",
-                borderRadius: "12px",
-                fontSize: "16px",
-                fontWeight: 600,
-                fontFamily: "inherit",
-              }}
-            />
-          </div>
-
-          {/* Quantity */}
-          <div style={{ marginBottom: "24px" }}>
-            <label
-              style={{
-                display: "block",
-                marginBottom: "8px",
-                fontSize: "14px",
-                fontWeight: 700,
-              }}
-            >
-              Number of Tickets
-            </label>
-            <select
-              value={formData.quantity}
-              onChange={(e) => handleChange("quantity", e.target.value)}
-              disabled={processing}
-              style={{
-                width: "100%",
-                padding: "14px",
-                border: "3px solid #000000",
-                borderRadius: "12px",
-                fontSize: "16px",
-                fontWeight: 600,
-                fontFamily: "inherit",
-                cursor: "pointer",
-              }}
-            >
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
-                <option key={num} value={num}>
-                  {num}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Price Breakdown */}
-          <div
-            style={{
-              background: "#F9FAFB",
-              border: "2px solid #E5E7EB",
-              borderRadius: "12px",
-              padding: "16px",
-              marginBottom: "24px",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                marginBottom: "8px",
-              }}
-            >
-              <span style={{ fontSize: "14px" }}>
-                {fees.quantity} × ${fees.ticketPrice.toFixed(2)}
-              </span>
-              <span style={{ fontSize: "14px", fontWeight: 600 }}>
-                ${fees.subtotal.toFixed(2)}
-              </span>
-            </div>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                marginBottom: "12px",
-              }}
-            >
-              <span style={{ fontSize: "14px", color: "#666" }}>
-                Service Fee
-              </span>
-              <span style={{ fontSize: "14px", fontWeight: 600 }}>
-                ${fees.eventLinkFee.toFixed(2)}
-              </span>
-            </div>
-            <div
-              style={{
-                borderTop: "2px solid #E5E7EB",
-                paddingTop: "12px",
-                display: "flex",
-                justifyContent: "space-between",
-              }}
-            >
-              <span style={{ fontSize: "18px", fontWeight: 900 }}>Total</span>
-              <span style={{ fontSize: "18px", fontWeight: 900 }}>
-                ${fees.totalBuyerPays.toFixed(2)}
-              </span>
-            </div>
-          </div>
-
-          {/* Error */}
-          {error && (
-            <div
-              style={{
-                background: "#FFE5E5",
-                border: "2px solid #EF4444",
-                borderRadius: "12px",
-                padding: "12px",
-                marginBottom: "20px",
-                color: "#EF4444",
-                fontSize: "14px",
-                fontWeight: 600,
-              }}
-            >
-              {error}
-            </div>
-          )}
-
-          {/* PayPal Buttons */}
-          {formData.buyerName && formData.buyerEmail && !processing ? (
-            <PayPalScriptProvider options={initialOptions}>
-              <PayPalButtons
-                style={{
-                  layout: "vertical",
-                  color: "blue",
-                  shape: "rect",
-                  label: "pay",
-                  height: 55,
-                }}
-                disableFunding={["paylater", "credit"]}
-                createOrder={(data, actions) => {
-                  return actions.order.create({
-                    purchase_units: [
-                      {
-                        amount: {
-                          currency_code: "USD",
-                          value: fees.totalBuyerPays.toFixed(2),
-                          breakdown: {
-                            item_total: {
-                              currency_code: "USD",
-                              value: fees.subtotal.toFixed(2),
-                            },
-                            handling: {
-                              currency_code: "USD",
-                              value: fees.eventLinkFee.toFixed(2),
-                            },
-                          },
-                        },
-                        description: `${eventData.event_name} - ${fees.quantity} ticket(s)`,
-                        custom_id: JSON.stringify({
-                          eventId,
-                          buyerEmail: formData.buyerEmail,
-                          quantity: fees.quantity,
-                        }),
-                      },
-                    ],
-                  });
-                }}
-                onApprove={async (data, actions) => {
-                  const details = await actions.order.capture();
-                  handlePayPalSuccess(details);
-                }}
-                onError={(err) => {
-                  console.error("PayPal Error:", err);
-                  setError("Payment failed. Please try again.");
-                }}
-              />
-            </PayPalScriptProvider>
-          ) : processing ? (
-            <div
-              style={{
-                background: "#FFF9DB",
-                border: "2px solid #F59E0B",
-                borderRadius: "12px",
-                padding: "16px",
-                textAlign: "center",
-                fontSize: "14px",
-                fontWeight: 600,
-              }}
-            >
-              ⏳ Processing your ticket...
-            </div>
-          ) : (
-            <div
-              style={{
-                background: "#FFF9DB",
-                border: "2px solid #F59E0B",
-                borderRadius: "12px",
-                padding: "16px",
-                textAlign: "center",
-                fontSize: "14px",
-                fontWeight: 600,
-              }}
-            >
-              Please fill out your information above
-            </div>
-          )}
+          <Elements stripe={stripePromise}>
+            <CheckoutForm eventData={eventData} onSuccess={handleSuccess} />
+          </Elements>
         </div>
       </div>
     </div>
