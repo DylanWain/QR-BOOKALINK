@@ -3,7 +3,22 @@ import { createClient } from "@supabase/supabase-js";
 const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
 const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY;
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Error checking
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.error('❌ Missing Supabase environment variables!');
+  console.error('REACT_APP_SUPABASE_URL:', supabaseUrl || 'MISSING');
+  console.error('REACT_APP_SUPABASE_ANON_KEY:', supabaseAnonKey ? 'Present' : 'MISSING');
+  
+  // Show alert in browser
+  if (typeof window !== 'undefined') {
+    alert('Configuration Error: Supabase environment variables are missing. Please contact support.');
+  }
+}
+
+export const supabase = createClient(
+  supabaseUrl || 'https://placeholder.supabase.co',
+  supabaseAnonKey || 'placeholder-key'
+);
 
 // Auth helpers
 export const signUp = async (email, password, fullName) => {
