@@ -85,7 +85,7 @@ const CheckoutForm = ({ eventData, onSuccess }) => {
         // Generate ticket code
         const ticketCode = 'TIX-' + Math.random().toString(36).substr(2, 9).toUpperCase();
 
-        // Create ticket in database - REMOVED event_name
+        // Create ticket in database
         const { data: ticketData, error: ticketError } = await supabase
           .from('tickets')
           .insert([
@@ -115,7 +115,39 @@ const CheckoutForm = ({ eventData, onSuccess }) => {
           return;
         }
 
-        // Success!
+        // Send confirmation email with QR code
+        console.log('📧 Sending email to:', formData.email);
+        try {
+          const emailResponse = await fetch('/api/send-ticket-email', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              ticketCode: ticketCode,
+              buyerName: formData.name,
+              buyerEmail: formData.email,
+              eventName: eventData.event_name,
+              quantity: formData.quantity,
+              ticketPrice: eventData.ticket_price,
+              totalPaid: totals.total
+            }),
+          });
+
+          const emailResult = await emailResponse.json();
+          console.log('📧 Email API response:', emailResult);
+
+          if (emailResult.success) {
+            console.log('✅ Email sent successfully! ID:', emailResult.emailId);
+          } else {
+            console.error('❌ Email failed:', emailResult.error);
+          }
+        } catch (emailError) {
+          console.error('❌ Email API error:', emailError);
+          // Continue even if email fails - don't block the user
+        }
+
+        // Success - redirect to ticket page
         onSuccess(ticketCode);
       }
     } catch (err) {
