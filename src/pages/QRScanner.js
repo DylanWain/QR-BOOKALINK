@@ -1,69 +1,62 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Html5QrcodeScanner } from 'html5-qrcode';
+import React, { useState, useEffect } from 'react';
+import { Html5Qrcode } from 'html5-qrcode';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../config/supabase';
 
 const QRScanner = () => {
   const navigate = useNavigate();
-  const [scanning, setScanning] = useState(true);
+  const [scanning, setScanning] = useState(false);
   const [ticketInfo, setTicketInfo] = useState(null);
   const [error, setError] = useState(null);
-  const scannerRef = useRef(null);
-  const hasInitialized = useRef(false);
+  const [html5QrCode, setHtml5QrCode] = useState(null);
 
   useEffect(() => {
-    // Prevent double initialization
-    if (hasInitialized.current) return;
-    hasInitialized.current = true;
+    startScanner();
 
-    // Wait for DOM to be ready
-    const initScanner = () => {
-      const element = document.getElementById('qr-reader');
-      if (!element) {
-        console.error('QR reader element not found');
-        return;
-      }
-
-      try {
-        const html5QrcodeScanner = new Html5QrcodeScanner(
-          "qr-reader",
-          { 
-            fps: 10, 
-            qrbox: { width: 250, height: 250 },
-            aspectRatio: 1.0
-          },
-          false
-        );
-
-        html5QrcodeScanner.render(onScanSuccess, onScanError);
-        scannerRef.current = html5QrcodeScanner;
-      } catch (err) {
-        console.error('Failed to initialize scanner:', err);
-      }
-    };
-
-    // Delay initialization slightly to ensure DOM is ready
-    const timer = setTimeout(initScanner, 100);
-
-    // Cleanup
     return () => {
-      clearTimeout(timer);
-      if (scannerRef.current) {
-        scannerRef.current.clear().catch(error => {
-          console.error("Failed to clear scanner:", error);
-        });
-      }
+      stopScanner();
     };
   }, []);
 
-  const onScanSuccess = async (decodedText) => {
-    console.log('QR Code scanned:', decodedText);
-    setScanning(false);
+  const startScanner = async () => {
+    try {
+      const qrCodeScanner = new Html5Qrcode("qr-reader");
+      setHtml5QrCode(qrCodeScanner);
 
-    // Stop scanner
-    if (scannerRef.current) {
-      scannerRef.current.clear().catch(err => console.error('Clear error:', err));
+      await qrCodeScanner.start(
+        { facingMode: "environment" },
+        {
+          fps: 10,
+          qrbox: { width: 250, height: 250 }
+        },
+        onScanSuccess,
+        onScanError
+      );
+
+      setScanning(true);
+    } catch (err) {
+      console.error("Failed to start scanner:", err);
+      setError("Failed to start camera. Please allow camera access.");
     }
+  };
+
+  const stopScanner = async () => {
+    if (html5QrCode && html5QrCode.isScanning) {
+      try {
+        await html5QrCode.stop();
+        await html5QrCode.clear();
+      } catch (err) {
+        console.error("Error stopping scanner:", err);
+      }
+    }
+  };
+
+  const onScanSuccess = async (decodedText, decodedResult) => {
+    console.log('QR Code scanned:', decodedText);
+
+    // Stop scanning immediately
+    stopScanner();
+    setScanning(false);
 
     // Look up ticket
     try {
@@ -115,11 +108,15 @@ const QRScanner = () => {
   };
 
   const onScanError = (errorMessage) => {
-    // Ignore scanning errors (they happen constantly)
+    // Ignore constant scanning errors
   };
 
-  const resetScanner = () => {
-    window.location.reload();
+  const resetScanner = async () => {
+    setTicketInfo(null);
+    setError(null);
+    setScanning(false);
+    await stopScanner();
+    await startScanner();
   };
 
   return (
@@ -166,6 +163,14 @@ const QRScanner = () => {
             boxShadow: '8px 8px 0px #000000'
           }}>
             <div id="qr-reader" style={{ width: '100%' }}></div>
+            <p style={{
+              textAlign: 'center',
+              marginTop: '16px',
+              fontSize: '14px',
+              color: '#666'
+            }}>
+              Position QR code within the frame
+            </p>
           </div>
         )}
 
@@ -212,6 +217,13 @@ const QRScanner = () => {
               </div>
 
               <div style={{ marginBottom: '12px' }}>
+                <span style={{ fontSize: '14px', color: '#666' }}>Email:</span>
+                <div style={{ fontSize: '16px', fontWeight: 600 }}>
+                  {ticketInfo.buyer_email}
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '12px' }}>
                 <span style={{ fontSize: '14px', color: '#666' }}>Ticket Code:</span>
                 <div style={{ fontSize: '16px', fontWeight: 800, fontFamily: 'monospace' }}>
                   {ticketInfo.ticket_code}
@@ -242,7 +254,7 @@ const QRScanner = () => {
                 textTransform: 'uppercase'
               }}
             >
-              Scan Next Ticket
+              📱 Scan Next Ticket
             </button>
           </div>
         )}
@@ -264,7 +276,7 @@ const QRScanner = () => {
               color: '#EF4444',
               marginBottom: '16px'
             }}>
-              {ticketInfo?.checked_in ? 'Already Checked In' : 'Invalid Ticket'}
+              {ticketInfo?.checked_in ? 'Already Checked In' : error.includes('camera') ? 'Camera Error' : 'Invalid Ticket'}
             </h2>
 
             <p style={{
@@ -275,7 +287,7 @@ const QRScanner = () => {
               {error}
             </p>
 
-            {ticketInfo && (
+            {ticketInfo && ticketInfo.checked_in && (
               <div style={{
                 background: '#FEE2E2',
                 border: '2px solid #EF4444',
@@ -290,12 +302,14 @@ const QRScanner = () => {
                     {ticketInfo.buyer_name}
                   </div>
                 </div>
-                <div>
-                  <span style={{ fontSize: '14px', color: '#666' }}>Checked in at:</span>
-                  <div style={{ fontSize: '16px', fontWeight: 700 }}>
-                    {new Date(ticketInfo.checked_in_at).toLocaleString()}
+                {ticketInfo.checked_in_at && (
+                  <div>
+                    <span style={{ fontSize: '14px', color: '#666' }}>Checked in at:</span>
+                    <div style={{ fontSize: '16px', fontWeight: 700 }}>
+                      {new Date(ticketInfo.checked_in_at).toLocaleString()}
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             )}
 
@@ -315,7 +329,7 @@ const QRScanner = () => {
                 textTransform: 'uppercase'
               }}
             >
-              Scan Another Ticket
+              🔄 Scan Another Ticket
             </button>
           </div>
         )}
