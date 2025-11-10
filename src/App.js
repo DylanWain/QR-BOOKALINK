@@ -17,6 +17,7 @@ import CreateEvent from "./pages/CreateEvent";
 import EventCreated from "./pages/EventCreated";
 import Dashboard from "./pages/Dashboard";
 import QRScanner from "./pages/QRScanner";
+import Home from "./pages/Home";
 
 // Public Pages
 import PaymentPage from "./pages/PaymentPage";
@@ -55,6 +56,9 @@ const ProtectedRoute = ({ children }) => {
 function AppRoutes() {
   return (
     <Routes>
+      {/* Home Route */}
+      <Route path="/" element={<Home />} />
+
       {/* Auth Routes */}
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
@@ -93,7 +97,7 @@ function AppRoutes() {
         }
       />
       <Route
-        path="/scan/:eventId"
+        path="/scan"
         element={
           <ProtectedRoute>
             <QRScanner />
@@ -105,9 +109,6 @@ function AppRoutes() {
       <Route path="/pay/:eventId" element={<PaymentPage />} />
       <Route path="/stripe-pay/:eventId" element={<StripePaymentPage />} />
       <Route path="/ticket/:ticketCode" element={<TicketSuccess />} />
-
-      {/* Default Route */}
-      <Route path="/" element={<Navigate to="/my-events" />} />
 
       {/* 404 - Catch all */}
       <Route path="*" element={<NotFound />} />
@@ -147,8 +148,8 @@ const NotFound = () => {
         <p style={{ fontSize: "16px", color: "#666", marginBottom: "24px" }}>
           The page you're looking for doesn't exist.
         </p>
-        <a
-          href="/my-events"
+        
+          href="/"
           style={{
             display: "inline-block",
             background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
