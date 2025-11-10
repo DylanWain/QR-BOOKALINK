@@ -5,35 +5,45 @@ import { supabase } from '../config/supabase';
 
 const QRScanner = () => {
   const navigate = useNavigate();
+  const [mounted, setMounted] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [ticketInfo, setTicketInfo] = useState(null);
   const [error, setError] = useState(null);
-  const [cameraReady, setCameraReady] = useState(false);
   const html5QrCodeRef = useRef(null);
+  const scannerInitialized = useRef(false);
 
+  // First useEffect: Mark component as mounted
   useEffect(() => {
-    // Wait for DOM to be ready, then start scanner
-    const timer = setTimeout(() => {
-      startScanner();
-    }, 500); // 500ms delay ensures DOM is ready
-
-    return () => {
-      clearTimeout(timer);
-      stopScanner();
-    };
+    setMounted(true);
   }, []);
 
+  // Second useEffect: Start scanner only after mounted
+  useEffect(() => {
+    if (!mounted || scannerInitialized.current) return;
+
+    const initTimer = setTimeout(() => {
+      startScanner();
+    }, 1000); // Longer delay
+
+    return () => {
+      clearTimeout(initTimer);
+      stopScanner();
+    };
+  }, [mounted]);
+
   const startScanner = async () => {
+    if (scannerInitialized.current) return;
+
     try {
-      // Check if element exists
       const element = document.getElementById("qr-reader");
       if (!element) {
-        console.error("qr-reader element not found");
-        setError("Scanner initialization failed");
+        console.error("qr-reader element not found, retrying...");
+        setTimeout(startScanner, 500);
         return;
       }
 
-      console.log("Starting QR scanner...");
+      console.log("✅ Element found, starting scanner...");
+      scannerInitialized.current = true;
       
       const qrCodeScanner = new Html5Qrcode("qr-reader");
       html5QrCodeRef.current = qrCodeScanner;
@@ -49,12 +59,12 @@ const QRScanner = () => {
       );
 
       setScanning(true);
-      setCameraReady(true);
       console.log("✅ Scanner started successfully");
 
     } catch (err) {
       console.error("Failed to start scanner:", err);
-      setError("Failed to start camera. Please allow camera access and try again.");
+      scannerInitialized.current = false;
+      setError("Failed to start camera. Please allow camera access.");
     }
   };
 
@@ -62,25 +72,24 @@ const QRScanner = () => {
     if (html5QrCodeRef.current) {
       try {
         const state = await html5QrCodeRef.current.getState();
-        if (state === 2) { // Scanning state
+        if (state === 2) {
           await html5QrCodeRef.current.stop();
         }
         await html5QrCodeRef.current.clear();
-        html5QrCodeRef.current = null;
       } catch (err) {
         console.error("Error stopping scanner:", err);
       }
+      html5QrCodeRef.current = null;
     }
+    scannerInitialized.current = false;
   };
 
-  const onScanSuccess = async (decodedText, decodedResult) => {
+  const onScanSuccess = async (decodedText) => {
     console.log('QR Code scanned:', decodedText);
 
-    // Stop scanning immediately
     await stopScanner();
     setScanning(false);
 
-    // Look up ticket
     try {
       const { data: ticket, error: ticketError } = await supabase
         .from('tickets')
@@ -105,7 +114,6 @@ const QRScanner = () => {
         return;
       }
 
-      // Check in the ticket
       const { error: updateError } = await supabase
         .from('tickets')
         .update({
@@ -120,7 +128,6 @@ const QRScanner = () => {
         return;
       }
 
-      // Success!
       setTicketInfo({ ...ticket, checked_in: true });
 
     } catch (err) {
@@ -129,22 +136,17 @@ const QRScanner = () => {
     }
   };
 
-  const onScanError = (errorMessage) => {
-    // Ignore constant scanning errors
+  const onScanError = () => {
+    // Ignore
   };
 
-  const resetScanner = async () => {
-    setTicketInfo(null);
-    setError(null);
-    setScanning(false);
-    setCameraReady(false);
-    await stopScanner();
-    
-    // Wait a bit before restarting
-    setTimeout(() => {
-      startScanner();
-    }, 500);
+  const resetScanner = () => {
+    window.location.reload();
   };
+
+  if (!mounted) {
+    return null; // Don't render anything until mounted
+  }
 
   return (
     <div style={{ minHeight: '100vh', background: '#F3F4F6', padding: '20px' }}>
@@ -154,7 +156,6 @@ const QRScanner = () => {
         paddingTop: '40px'
       }}>
         
-        {/* Header */}
         <div style={{
           background: '#FFFFFF',
           border: '4px solid #000000',
@@ -164,24 +165,15 @@ const QRScanner = () => {
           marginBottom: '24px',
           textAlign: 'center'
         }}>
-          <h1 style={{
-            fontSize: '32px',
-            fontWeight: 900,
-            marginBottom: '8px'
-          }}>
+          <h1 style={{ fontSize: '32px', fontWeight: 900, marginBottom: '8px' }}>
             📱 QR Scanner
           </h1>
-          <p style={{
-            fontSize: '16px',
-            color: '#666',
-            margin: 0
-          }}>
+          <p style={{ fontSize: '16px', color: '#666', margin: 0 }}>
             Scan ticket QR codes to check in guests
           </p>
         </div>
 
-        {/* Loading State */}
-        {!cameraReady && !ticketInfo && !error && (
+        {!scanning && !ticketInfo && !error && (
           <div style={{
             background: '#FFFFFF',
             border: '4px solid #000000',
@@ -191,13 +183,10 @@ const QRScanner = () => {
             textAlign: 'center'
           }}>
             <div style={{ fontSize: '48px', marginBottom: '16px' }}>📷</div>
-            <p style={{ fontSize: '16px', color: '#666' }}>
-              Initializing camera...
-            </p>
+            <p style={{ fontSize: '16px', color: '#666' }}>Initializing camera...</p>
           </div>
         )}
 
-        {/* Scanner */}
         {scanning && !ticketInfo && !error && (
           <div style={{
             background: '#FFFFFF',
@@ -219,7 +208,6 @@ const QRScanner = () => {
           </div>
         )}
 
-        {/* Success Result */}
         {ticketInfo && !error && (
           <div style={{
             background: '#FFFFFF',
@@ -230,12 +218,7 @@ const QRScanner = () => {
             textAlign: 'center'
           }}>
             <div style={{ fontSize: '64px', marginBottom: '16px' }}>✅</div>
-            <h2 style={{
-              fontSize: '28px',
-              fontWeight: 900,
-              color: '#10B981',
-              marginBottom: '24px'
-            }}>
+            <h2 style={{ fontSize: '28px', fontWeight: 900, color: '#10B981', marginBottom: '24px' }}>
               Check-In Successful!
             </h2>
 
@@ -253,28 +236,20 @@ const QRScanner = () => {
                   {ticketInfo.events?.event_name || 'Event'}
                 </div>
               </div>
-
               <div style={{ marginBottom: '12px' }}>
                 <span style={{ fontSize: '14px', color: '#666' }}>Guest:</span>
-                <div style={{ fontSize: '18px', fontWeight: 700 }}>
-                  {ticketInfo.buyer_name}
-                </div>
+                <div style={{ fontSize: '18px', fontWeight: 700 }}>{ticketInfo.buyer_name}</div>
               </div>
-
               <div style={{ marginBottom: '12px' }}>
                 <span style={{ fontSize: '14px', color: '#666' }}>Email:</span>
-                <div style={{ fontSize: '16px', fontWeight: 600 }}>
-                  {ticketInfo.buyer_email}
-                </div>
+                <div style={{ fontSize: '16px', fontWeight: 600 }}>{ticketInfo.buyer_email}</div>
               </div>
-
               <div style={{ marginBottom: '12px' }}>
                 <span style={{ fontSize: '14px', color: '#666' }}>Ticket Code:</span>
                 <div style={{ fontSize: '16px', fontWeight: 800, fontFamily: 'monospace' }}>
                   {ticketInfo.ticket_code}
                 </div>
               </div>
-
               <div>
                 <span style={{ fontSize: '14px', color: '#666' }}>Quantity:</span>
                 <div style={{ fontSize: '18px', fontWeight: 700 }}>
@@ -283,28 +258,24 @@ const QRScanner = () => {
               </div>
             </div>
 
-            <button
-              onClick={resetScanner}
-              style={{
-                width: '100%',
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                color: '#FFFFFF',
-                border: '3px solid #000000',
-                borderRadius: '12px',
-                padding: '16px',
-                fontSize: '18px',
-                fontWeight: 900,
-                cursor: 'pointer',
-                boxShadow: '6px 6px 0px #000000',
-                textTransform: 'uppercase'
-              }}
-            >
+            <button onClick={resetScanner} style={{
+              width: '100%',
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              color: '#FFFFFF',
+              border: '3px solid #000000',
+              borderRadius: '12px',
+              padding: '16px',
+              fontSize: '18px',
+              fontWeight: 900,
+              cursor: 'pointer',
+              boxShadow: '6px 6px 0px #000000',
+              textTransform: 'uppercase'
+            }}>
               📱 Scan Next Ticket
             </button>
           </div>
         )}
 
-        {/* Error Result */}
         {error && (
           <div style={{
             background: '#FFFFFF',
@@ -315,22 +286,10 @@ const QRScanner = () => {
             textAlign: 'center'
           }}>
             <div style={{ fontSize: '64px', marginBottom: '16px' }}>❌</div>
-            <h2 style={{
-              fontSize: '28px',
-              fontWeight: 900,
-              color: '#EF4444',
-              marginBottom: '16px'
-            }}>
-              {ticketInfo?.checked_in ? 'Already Checked In' : error.includes('camera') ? 'Camera Error' : 'Invalid Ticket'}
+            <h2 style={{ fontSize: '28px', fontWeight: 900, color: '#EF4444', marginBottom: '16px' }}>
+              {ticketInfo?.checked_in ? 'Already Checked In' : 'Error'}
             </h2>
-
-            <p style={{
-              fontSize: '16px',
-              color: '#666',
-              marginBottom: '24px'
-            }}>
-              {error}
-            </p>
+            <p style={{ fontSize: '16px', color: '#666', marginBottom: '24px' }}>{error}</p>
 
             {ticketInfo && ticketInfo.checked_in && (
               <div style={{
@@ -343,9 +302,7 @@ const QRScanner = () => {
               }}>
                 <div style={{ marginBottom: '8px' }}>
                   <span style={{ fontSize: '14px', color: '#666' }}>Guest:</span>
-                  <div style={{ fontSize: '16px', fontWeight: 700 }}>
-                    {ticketInfo.buyer_name}
-                  </div>
+                  <div style={{ fontSize: '16px', fontWeight: 700 }}>{ticketInfo.buyer_name}</div>
                 </div>
                 {ticketInfo.checked_in_at && (
                   <div>
@@ -358,43 +315,36 @@ const QRScanner = () => {
               </div>
             )}
 
-            <button
-              onClick={resetScanner}
-              style={{
-                width: '100%',
-                background: '#FFFFFF',
-                color: '#000000',
-                border: '3px solid #000000',
-                borderRadius: '12px',
-                padding: '16px',
-                fontSize: '18px',
-                fontWeight: 900,
-                cursor: 'pointer',
-                boxShadow: '6px 6px 0px #000000',
-                textTransform: 'uppercase'
-              }}
-            >
+            <button onClick={resetScanner} style={{
+              width: '100%',
+              background: '#FFFFFF',
+              color: '#000000',
+              border: '3px solid #000000',
+              borderRadius: '12px',
+              padding: '16px',
+              fontSize: '18px',
+              fontWeight: 900,
+              cursor: 'pointer',
+              boxShadow: '6px 6px 0px #000000',
+              textTransform: 'uppercase'
+            }}>
               🔄 Try Again
             </button>
           </div>
         )}
 
-        {/* Back Button */}
-        <button
-          onClick={() => navigate('/my-events')}
-          style={{
-            width: '100%',
-            marginTop: '24px',
-            background: 'transparent',
-            color: '#666',
-            border: '3px solid #E5E7EB',
-            borderRadius: '12px',
-            padding: '16px',
-            fontSize: '16px',
-            fontWeight: 700,
-            cursor: 'pointer'
-          }}
-        >
+        <button onClick={() => navigate('/my-events')} style={{
+          width: '100%',
+          marginTop: '24px',
+          background: 'transparent',
+          color: '#666',
+          border: '3px solid #E5E7EB',
+          borderRadius: '12px',
+          padding: '16px',
+          fontSize: '16px',
+          fontWeight: 700,
+          cursor: 'pointer'
+        }}>
           ← Back to Events
         </button>
       </div>
