@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../config/supabase';
@@ -8,20 +8,35 @@ const QRScanner = () => {
   const [scanning, setScanning] = useState(false);
   const [ticketInfo, setTicketInfo] = useState(null);
   const [error, setError] = useState(null);
-  const [html5QrCode, setHtml5QrCode] = useState(null);
+  const [cameraReady, setCameraReady] = useState(false);
+  const html5QrCodeRef = useRef(null);
 
   useEffect(() => {
-    startScanner();
+    // Wait for DOM to be ready, then start scanner
+    const timer = setTimeout(() => {
+      startScanner();
+    }, 500); // 500ms delay ensures DOM is ready
 
     return () => {
+      clearTimeout(timer);
       stopScanner();
     };
   }, []);
 
   const startScanner = async () => {
     try {
+      // Check if element exists
+      const element = document.getElementById("qr-reader");
+      if (!element) {
+        console.error("qr-reader element not found");
+        setError("Scanner initialization failed");
+        return;
+      }
+
+      console.log("Starting QR scanner...");
+      
       const qrCodeScanner = new Html5Qrcode("qr-reader");
-      setHtml5QrCode(qrCodeScanner);
+      html5QrCodeRef.current = qrCodeScanner;
 
       await qrCodeScanner.start(
         { facingMode: "environment" },
@@ -34,17 +49,24 @@ const QRScanner = () => {
       );
 
       setScanning(true);
+      setCameraReady(true);
+      console.log("✅ Scanner started successfully");
+
     } catch (err) {
       console.error("Failed to start scanner:", err);
-      setError("Failed to start camera. Please allow camera access.");
+      setError("Failed to start camera. Please allow camera access and try again.");
     }
   };
 
   const stopScanner = async () => {
-    if (html5QrCode && html5QrCode.isScanning) {
+    if (html5QrCodeRef.current) {
       try {
-        await html5QrCode.stop();
-        await html5QrCode.clear();
+        const state = await html5QrCodeRef.current.getState();
+        if (state === 2) { // Scanning state
+          await html5QrCodeRef.current.stop();
+        }
+        await html5QrCodeRef.current.clear();
+        html5QrCodeRef.current = null;
       } catch (err) {
         console.error("Error stopping scanner:", err);
       }
@@ -55,7 +77,7 @@ const QRScanner = () => {
     console.log('QR Code scanned:', decodedText);
 
     // Stop scanning immediately
-    stopScanner();
+    await stopScanner();
     setScanning(false);
 
     // Look up ticket
@@ -115,8 +137,13 @@ const QRScanner = () => {
     setTicketInfo(null);
     setError(null);
     setScanning(false);
+    setCameraReady(false);
     await stopScanner();
-    await startScanner();
+    
+    // Wait a bit before restarting
+    setTimeout(() => {
+      startScanner();
+    }, 500);
   };
 
   return (
@@ -153,6 +180,23 @@ const QRScanner = () => {
           </p>
         </div>
 
+        {/* Loading State */}
+        {!cameraReady && !ticketInfo && !error && (
+          <div style={{
+            background: '#FFFFFF',
+            border: '4px solid #000000',
+            borderRadius: '20px',
+            padding: '40px',
+            boxShadow: '8px 8px 0px #000000',
+            textAlign: 'center'
+          }}>
+            <div style={{ fontSize: '48px', marginBottom: '16px' }}>📷</div>
+            <p style={{ fontSize: '16px', color: '#666' }}>
+              Initializing camera...
+            </p>
+          </div>
+        )}
+
         {/* Scanner */}
         {scanning && !ticketInfo && !error && (
           <div style={{
@@ -167,9 +211,10 @@ const QRScanner = () => {
               textAlign: 'center',
               marginTop: '16px',
               fontSize: '14px',
-              color: '#666'
+              color: '#666',
+              fontWeight: 600
             }}>
-              Position QR code within the frame
+              📱 Position QR code within the frame
             </p>
           </div>
         )}
@@ -329,7 +374,7 @@ const QRScanner = () => {
                 textTransform: 'uppercase'
               }}
             >
-              🔄 Scan Another Ticket
+              🔄 Try Again
             </button>
           </div>
         )}
