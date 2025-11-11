@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { createEvent } from "../services/eventService";
 import { createConnectAccount } from "../services/stripeService";
-import { supabase } from "../services/supabaseClient";
+import supabase from "../lib/supabase";
 
 const CreateEvent = () => {
   const navigate = useNavigate();
