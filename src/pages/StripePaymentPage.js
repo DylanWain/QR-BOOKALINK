@@ -511,6 +511,82 @@ const StripePaymentPage = () => {
           padding: "clamp(20px, 5vw, 40px) clamp(16px, 4vw, 20px)",
         }}
       >
+        {/* Trust Badges */}
+        <div
+          style={{
+            background: "#FFFFFF",
+            border: "3px solid #000000",
+            borderRadius: "16px",
+            padding: "clamp(16px, 4vw, 20px)",
+            marginBottom: "clamp(20px, 5vw, 24px)",
+            boxShadow: "4px 4px 0px #000000",
+          }}
+        >
+          <div
+            style={{
+              fontSize: "clamp(12px, 3vw, 14px)",
+              fontWeight: 700,
+              color: "#666",
+              marginBottom: "12px",
+              textAlign: "center",
+              textTransform: "uppercase",
+              letterSpacing: "0.5px",
+            }}
+          >
+            Trusted by thousands of event organizers
+          </div>
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              justifyContent: "center",
+              alignItems: "center",
+              gap: "clamp(12px, 3vw, 16px)",
+              fontSize: "clamp(11px, 2.8vw, 13px)",
+              fontWeight: 600,
+              color: "#999",
+            }}
+          >
+            <span>🎉 Partiful</span>
+            <span>•</span>
+            <span>🎫 Eventbrite</span>
+            <span>•</span>
+            <span>📅 Lu.ma</span>
+            <span>•</span>
+            <span>🎪 Dice</span>
+            <span>•</span>
+            <span>🎭 Universe</span>
+          </div>
+          <div
+            style={{
+              marginTop: "16px",
+              paddingTop: "16px",
+              borderTop: "2px solid #F3F4F6",
+              display: "flex",
+              flexWrap: "wrap",
+              justifyContent: "center",
+              alignItems: "center",
+              gap: "clamp(12px, 3vw, 20px)",
+              fontSize: "clamp(10px, 2.5vw, 12px)",
+              color: "#666",
+              fontWeight: 600,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <span>🔒</span>
+              <span>SSL Encrypted</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <span>✅</span>
+              <span>PCI Compliant</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <span>💳</span>
+              <span>Stripe Verified</span>
+            </div>
+          </div>
+        </div>
+
         {/* Event Info */}
         <div
           style={{
@@ -557,6 +633,25 @@ const StripePaymentPage = () => {
           <Elements stripe={stripePromise}>
             <CheckoutForm eventData={eventData} eventId={eventId} />
           </Elements>
+        </div>
+
+        {/* Additional Trust Indicators */}
+        <div
+          style={{
+            marginTop: "clamp(20px, 5vw, 24px)",
+            textAlign: "center",
+            fontSize: "clamp(11px, 2.8vw, 13px)",
+            color: "#999",
+            fontWeight: 600,
+          }}
+        >
+          <div style={{ marginBottom: "8px" }}>
+            ⚡ Instant ticket delivery via email
+          </div>
+          <div style={{ marginBottom: "8px" }}>
+            🎟️ QR code for easy check-in
+          </div>
+          <div>💯 100% money-back guarantee</div>
         </div>
       </div>
     </div>
