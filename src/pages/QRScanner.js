@@ -1,27 +1,48 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '../config/supabase';
 
 const QRScanner = () => {
   const navigate = useNavigate();
+  const { eventId } = useParams(); // ← NOW READS EVENT ID FROM URL
+  
   const [scanning, setScanning] = useState(false);
   const [ticketInfo, setTicketInfo] = useState(null);
   const [error, setError] = useState(null);
   const [manualCode, setManualCode] = useState('');
   const [cameraError, setCameraError] = useState(false);
+  const [eventInfo, setEventInfo] = useState(null); // ← NEW: Store event info
 
   useEffect(() => {
+    // Load event info if eventId provided
+    if (eventId) {
+      loadEventInfo();
+    }
     startCamera();
     return () => {
       stopCamera();
     };
-  }, []);
+  }, [eventId]);
+
+  const loadEventInfo = async () => {
+    try {
+      const { data: event, error: eventError } = await supabase
+        .from('events')
+        .select('event_name, event_date, venue')
+        .eq('event_id', eventId)
+        .single();
+
+      if (!eventError && event) {
+        setEventInfo(event);
+      }
+    } catch (err) {
+      console.error('Error loading event:', err);
+    }
+  };
 
   const startCamera = async () => {
     try {
-      // Check if html5-qrcode is available
       if (typeof window.Html5Qrcode === 'undefined') {
-        // Fallback to manual entry if library not loaded
         setCameraError(true);
         return;
       }
@@ -33,7 +54,7 @@ const QRScanner = () => {
         { facingMode: "environment" },
         { fps: 10, qrbox: { width: 250, height: 250 } },
         onScanSuccess,
-        () => {} // Ignore errors
+        () => {}
       );
 
       setScanning(true);
@@ -72,6 +93,8 @@ const QRScanner = () => {
           *,
           events:event_id (
             event_name,
+            event_date,
+            venue,
             ticket_price
           )
         `)
@@ -80,6 +103,13 @@ const QRScanner = () => {
 
       if (ticketError || !ticket) {
         setError('Invalid ticket code');
+        return;
+      }
+
+      // ← NEW: Check if ticket matches the event (if eventId provided)
+      if (eventId && ticket.event_id !== eventId) {
+        setError('This ticket is for a different event!');
+        setTicketInfo(ticket);
         return;
       }
 
@@ -124,9 +154,19 @@ const QRScanner = () => {
     <div style={{ minHeight: '100vh', background: '#F3F4F6', padding: '20px' }}>
       <div style={{ maxWidth: '600px', margin: '0 auto', paddingTop: '40px' }}>
         
+        {/* Header with Event Info */}
         <div style={{ background: '#FFFFFF', border: '4px solid #000000', borderRadius: '20px', padding: '24px', boxShadow: '8px 8px 0px #000000', marginBottom: '24px', textAlign: 'center' }}>
           <h1 style={{ fontSize: '32px', fontWeight: 900, marginBottom: '8px' }}>📱 QR Scanner</h1>
-          <p style={{ fontSize: '16px', color: '#666', margin: 0 }}>Scan or enter ticket codes to check in guests</p>
+          {eventInfo ? (
+            <div>
+              <p style={{ fontSize: '18px', fontWeight: 700, color: '#667eea', margin: '8px 0' }}>{eventInfo.event_name}</p>
+              <p style={{ fontSize: '14px', color: '#666', margin: 0 }}>
+                {new Date(eventInfo.event_date).toLocaleDateString()} • {eventInfo.venue}
+              </p>
+            </div>
+          ) : (
+            <p style={{ fontSize: '16px', color: '#666', margin: 0 }}>Scan or enter ticket codes to check in guests</p>
+          )}
         </div>
 
         {!ticketInfo && !error && (
@@ -161,7 +201,8 @@ const QRScanner = () => {
                     fontWeight: 600,
                     fontFamily: 'monospace',
                     textTransform: 'uppercase',
-                    marginBottom: '12px'
+                    marginBottom: '12px',
+                    boxSizing: 'border-box'
                   }}
                 />
                 <button
@@ -222,16 +263,22 @@ const QRScanner = () => {
           <div style={{ background: '#FFFFFF', border: '4px solid #000000', borderRadius: '20px', padding: '32px', boxShadow: '8px 8px 0px #000000', textAlign: 'center' }}>
             <div style={{ fontSize: '64px', marginBottom: '16px' }}>❌</div>
             <h2 style={{ fontSize: '28px', fontWeight: 900, color: '#EF4444', marginBottom: '16px' }}>
-              {ticketInfo?.checked_in ? 'Already Checked In' : 'Invalid Ticket'}
+              {ticketInfo?.checked_in ? 'Already Checked In' : 
+               eventId && ticketInfo?.event_id !== eventId ? 'Wrong Event' : 
+               'Invalid Ticket'}
             </h2>
             <p style={{ fontSize: '16px', color: '#666', marginBottom: '24px' }}>{error}</p>
-            {ticketInfo && ticketInfo.checked_in && (
+            {ticketInfo && (
               <div style={{ background: '#FEE2E2', border: '2px solid #EF4444', borderRadius: '12px', padding: '16px', marginBottom: '24px', textAlign: 'left' }}>
+                <div style={{ marginBottom: '8px' }}>
+                  <span style={{ fontSize: '14px', color: '#666' }}>Event:</span>
+                  <div style={{ fontSize: '16px', fontWeight: 700 }}>{ticketInfo.events?.event_name || 'Unknown'}</div>
+                </div>
                 <div style={{ marginBottom: '8px' }}>
                   <span style={{ fontSize: '14px', color: '#666' }}>Guest:</span>
                   <div style={{ fontSize: '16px', fontWeight: 700 }}>{ticketInfo.buyer_name}</div>
                 </div>
-                {ticketInfo.checked_in_at && (
+                {ticketInfo.checked_in && ticketInfo.checked_in_at && (
                   <div>
                     <span style={{ fontSize: '14px', color: '#666' }}>Checked in at:</span>
                     <div style={{ fontSize: '16px', fontWeight: 700 }}>{new Date(ticketInfo.checked_in_at).toLocaleString()}</div>
@@ -249,8 +296,6 @@ const QRScanner = () => {
           ← Back to Events
         </button>
       </div>
-
-      <script src="https://unpkg.com/html5-qrcode" />
     </div>
   );
 };
