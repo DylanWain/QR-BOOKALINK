@@ -59,17 +59,25 @@ function App() {
     <AuthProvider>
       <Router>
         <Routes>
+          {/* Public Routes */}
           <Route path="/" element={<Home />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
+          <Route path="/pay/:eventId" element={<PaymentPage />} />
+          <Route path="/stripe-pay/:eventId" element={<StripePaymentPage />} />
+          <Route path="/ticket/:ticketCode" element={<TicketSuccess />} />
+
+          {/* Protected Routes */}
           <Route path="/my-events" element={<ProtectedRoute><MyEvents /></ProtectedRoute>} />
           <Route path="/create-event" element={<ProtectedRoute><CreateEvent /></ProtectedRoute>} />
           <Route path="/event-created/:eventId" element={<ProtectedRoute><EventCreated /></ProtectedRoute>} />
           <Route path="/dash/:eventId" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          
+          {/* QR Scanner Routes - BOTH OPTIONS SUPPORTED */}
           <Route path="/scan" element={<ProtectedRoute><QRScanner /></ProtectedRoute>} />
-          <Route path="/pay/:eventId" element={<PaymentPage />} />
-          <Route path="/stripe-pay/:eventId" element={<StripePaymentPage />} />
-          <Route path="/ticket/:ticketCode" element={<TicketSuccess />} />
+          <Route path="/scan/:eventId" element={<ProtectedRoute><QRScanner /></ProtectedRoute>} />
+
+          {/* 404 Catch-all */}
           <Route path="*" element={<NotFound />} />
         </Routes>
       </Router>
