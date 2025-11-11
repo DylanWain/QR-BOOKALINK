@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { createEvent } from "../services/eventService";
 import { createConnectAccount } from "../services/stripeService";
+import { supabase } from "../services/supabaseClient";
 
 const CreateEvent = () => {
   const navigate = useNavigate();
@@ -11,6 +12,7 @@ const CreateEvent = () => {
   const [loading, setLoading] = useState(false);
   const [connectingStripe, setConnectingStripe] = useState(false);
   const [stripeAccountId, setStripeAccountId] = useState(null);
+  const [checkingAccount, setCheckingAccount] = useState(true);
   const [error, setError] = useState("");
   const [formData, setFormData] = useState({
     eventName: "",
@@ -26,10 +28,44 @@ const CreateEvent = () => {
       return;
     }
 
-    // Check if returning from Stripe Connect
-    if (searchParams.get("stripe_connected") === "true") {
-      alert("Stripe connected successfully! ✅");
-    }
+    // Check if user already has a Stripe account
+    const checkExistingStripeAccount = async () => {
+      try {
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('stripe_account_id')
+          .eq('id', user.id)
+          .single();
+
+        if (profileError && profileError.code !== 'PGRST116') {
+          console.error('Error fetching profile:', profileError);
+        }
+
+        if (profile?.stripe_account_id) {
+          console.log('✅ User already has Stripe account:', profile.stripe_account_id);
+          setStripeAccountId(profile.stripe_account_id);
+        }
+
+        // Check if returning from Stripe Connect
+        const accountIdFromUrl = searchParams.get('stripe_account_id');
+        if (accountIdFromUrl) {
+          console.log('✅ Returned from Stripe with account:', accountIdFromUrl);
+          setStripeAccountId(accountIdFromUrl);
+          
+          // Save to database
+          await supabase
+            .from('profiles')
+            .update({ stripe_account_id: accountIdFromUrl })
+            .eq('id', user.id);
+        }
+      } catch (err) {
+        console.error('Error checking Stripe account:', err);
+      } finally {
+        setCheckingAccount(false);
+      }
+    };
+
+    checkExistingStripeAccount();
   }, [user, navigate, searchParams]);
 
   const handleChange = (field, value) => {
@@ -57,7 +93,7 @@ const CreateEvent = () => {
     try {
       console.log('🚀 Starting Stripe Connect for:', formData.hostEmail);
 
-      // Create Stripe Express account AND get onboarding link in one call
+      // Create Stripe Express account AND get onboarding link
       const { account, link, error: stripeError } = await createConnectAccount(
         formData.hostEmail,
         user?.id
@@ -78,11 +114,27 @@ const CreateEvent = () => {
       }
 
       console.log('✅ Stripe account created:', account.id);
-      console.log('✅ Redirecting to:', link.url);
 
-      // Save account ID
+      // Save account ID to state
       setStripeAccountId(account.id);
 
+      // Save to database BEFORE redirecting
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ stripe_account_id: account.id })
+        .eq('id', user.id);
+
+      if (updateError) {
+        console.error('❌ Error saving to database:', updateError);
+      } else {
+        console.log('✅ Saved Stripe account ID to database');
+      }
+
+      // Add return URL with account ID so we can verify when they return
+      const returnUrl = `${window.location.origin}/create-event?stripe_account_id=${account.id}`;
+      
+      console.log('✅ Redirecting to Stripe onboarding...');
+      
       // Redirect to Stripe onboarding
       window.location.href = link.url;
     } catch (err) {
@@ -146,6 +198,14 @@ const CreateEvent = () => {
       setLoading(false);
     }
   };
+
+  if (checkingAccount) {
+    return (
+      <div style={{ minHeight: "100vh", background: "#F3F4F6", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ fontSize: "18px", fontWeight: 600 }}>Loading...</div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ minHeight: "100vh", background: "#F3F4F6" }}>
@@ -446,7 +506,7 @@ const CreateEvent = () => {
                 >
                   {connectingStripe
                     ? "⏳ Connecting..."
-                    : "🔗 Connect Stripe to Receive Payments"}
+                    : "🔗 Connect Stripe to Receive Payments (One-Time Setup)"}
                 </button>
               ) : (
                 <div
@@ -477,7 +537,7 @@ const CreateEvent = () => {
                         marginTop: "4px",
                       }}
                     >
-                      You'll receive payments automatically
+                      You'll receive payments automatically (Setup complete!)
                     </div>
                   </div>
                 </div>
