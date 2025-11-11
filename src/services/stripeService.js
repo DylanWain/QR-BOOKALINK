@@ -1,80 +1,66 @@
-const getApiBase = () => {
-  // In production (Vercel), use relative /api path
-  // In development, use full URL or localhost
-  if (typeof window !== "undefined") {
-    return window.location.hostname === "localhost"
-      ? "http://localhost:3000/api"
-      : "/api";
-  }
-  return "/api";
-};
-
-export const createConnectAccount = async (email) => {
+export const createConnectAccount = async (email, userId) => {
   try {
-    const response = await fetch(`${getApiBase()}/create-connect-account`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email }),
+    console.log('🔵 Creating Stripe account for:', email);
+
+    const response = await fetch('https://qr-bookalink.vercel.app/api/create-connect-account', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ 
+        email: email,
+        userId: userId 
+      }),
     });
 
     const data = await response.json();
 
-    if (data.error) {
-      return { account: null, error: data.error };
+    if (!response.ok) {
+      console.error('❌ API error:', data);
+      throw new Error(data.error || 'Failed to create Stripe account');
     }
 
-    return { account: data.account, error: null };
+    console.log('✅ API response:', data);
+
+    return { 
+      account: { id: data.accountId },
+      link: { url: data.url },
+      error: null 
+    };
   } catch (error) {
-    console.error("Create account error:", error);
-    return { account: null, error: error.message };
+    console.error('❌ Create connect account error:', error);
+    return { 
+      account: null, 
+      link: null,
+      error: error.message 
+    };
   }
 };
 
 export const createAccountLink = async (accountId) => {
   try {
-    const returnUrl = `${window.location.origin}/create-event?stripe_connected=true&account_id=${accountId}`;
-    const refreshUrl = `${window.location.origin}/create-event?stripe_refresh=true`;
+    console.log('🔵 Creating account link for:', accountId);
 
-    const response = await fetch(`${getApiBase()}/create-account-link`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ accountId, returnUrl, refreshUrl }),
+    const response = await fetch('https://qr-bookalink.vercel.app/api/create-connect-account', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ accountId }),
     });
 
     const data = await response.json();
 
-    if (data.error) {
-      return { link: null, error: data.error };
+    if (!response.ok) {
+      console.error('❌ API error:', data);
+      throw new Error(data.error || 'Failed to create account link');
     }
 
-    return { link: data.link, error: null };
+    console.log('✅ API response:', data);
+
+    return { link: { url: data.url }, error: null };
   } catch (error) {
-    console.error("Create link error:", error);
+    console.error('❌ Create account link error:', error);
     return { link: null, error: error.message };
-  }
-};
-
-export const createPaymentIntent = async (
-  amount,
-  connectedAccountId,
-  applicationFee
-) => {
-  try {
-    const response = await fetch(`${getApiBase()}/create-payment-intent`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amount, connectedAccountId, applicationFee }),
-    });
-
-    const data = await response.json();
-
-    if (data.error) {
-      return { intent: null, error: data.error };
-    }
-
-    return { intent: data.intent, error: null };
-  } catch (error) {
-    console.error("Create payment intent error:", error);
-    return { intent: null, error: error.message };
   }
 };
