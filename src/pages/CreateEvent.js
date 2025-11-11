@@ -1,11 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { createEvent, updateEvent } from "../services/eventService";
-import {
-  createConnectAccount,
-  createAccountLink,
-} from "../services/stripeService";
+import { createEvent } from "../services/eventService";
+import { createConnectAccount } from "../services/stripeService";
 
 const CreateEvent = () => {
   const navigate = useNavigate();
@@ -57,30 +54,42 @@ const CreateEvent = () => {
     setConnectingStripe(true);
     setError("");
 
-    // Create Stripe Express account
-    const { account, error: accountError } = await createConnectAccount(
-      formData.hostEmail
-    );
+    try {
+      console.log('🚀 Starting Stripe Connect for:', formData.hostEmail);
 
-    if (accountError) {
-      setError("Failed to create Stripe account. Please try again.");
+      // Create Stripe Express account AND get onboarding link in one call
+      const { account, link, error: stripeError } = await createConnectAccount(
+        formData.hostEmail,
+        user?.id
+      );
+
+      if (stripeError) {
+        console.error('❌ Stripe error:', stripeError);
+        setError(`Failed to create Stripe account: ${stripeError}`);
+        setConnectingStripe(false);
+        return;
+      }
+
+      if (!account || !link) {
+        console.error('❌ Missing account or link:', { account, link });
+        setError("Failed to setup Stripe. Please try again.");
+        setConnectingStripe(false);
+        return;
+      }
+
+      console.log('✅ Stripe account created:', account.id);
+      console.log('✅ Redirecting to:', link.url);
+
+      // Save account ID
+      setStripeAccountId(account.id);
+
+      // Redirect to Stripe onboarding
+      window.location.href = link.url;
+    } catch (err) {
+      console.error('💥 Unexpected error:', err);
+      setError("Failed to connect Stripe. Please try again.");
       setConnectingStripe(false);
-      return;
     }
-
-    setStripeAccountId(account.id);
-
-    // Create account link for onboarding
-    const { link, error: linkError } = await createAccountLink(account.id);
-
-    if (linkError) {
-      setError("Failed to create onboarding link. Please try again.");
-      setConnectingStripe(false);
-      return;
-    }
-
-    // Redirect to Stripe onboarding
-    window.location.href = link.url;
   };
 
   const handleSubmit = async (e) => {
@@ -236,6 +245,7 @@ const CreateEvent = () => {
                   fontSize: "16px",
                   fontWeight: 600,
                   fontFamily: "inherit",
+                  boxSizing: "border-box",
                 }}
               />
             </div>
@@ -280,6 +290,7 @@ const CreateEvent = () => {
                     fontSize: "16px",
                     fontWeight: 600,
                     fontFamily: "inherit",
+                    boxSizing: "border-box",
                   }}
                 />
               </div>
@@ -361,6 +372,7 @@ const CreateEvent = () => {
                     fontSize: "16px",
                     fontWeight: 600,
                     fontFamily: "inherit",
+                    boxSizing: "border-box",
                   }}
                 />
               )}
@@ -391,6 +403,7 @@ const CreateEvent = () => {
                   fontSize: "16px",
                   fontWeight: 600,
                   fontFamily: "inherit",
+                  boxSizing: "border-box",
                 }}
               />
             </div>
